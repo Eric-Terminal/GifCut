@@ -21,9 +21,12 @@ final class EditorModel {
     var progress: Double = 0
     var maximumWidth = 480
     var fps = 15
+    var encodingPreset = GIFEncodingPreset.balanced
+    var customEncoding = GIFEncoding(paletteSize: .colors128, dithering: .ordered)
     var error: String?
     var exportedURL: URL?
     var exportedSize = ""
+    var exportedEncodingSummary = ""
     var thumbnails: [NSImage] = []
     var focusedTimeline = false
     @ObservationIgnored private var observer: Any?
@@ -45,7 +48,14 @@ final class EditorModel {
     var settings: ExportSettings? {
         guard let source else { return nil }
         return ExportSettings(input: source, range: range, crop: crop, videoSize: videoSize,
-                              maximumWidth: maximumWidth, fps: fps)
+                              maximumWidth: maximumWidth, fps: fps, encoding: encoding)
+    }
+
+    var encoding: GIFEncoding { encodingPreset.encoding ?? customEncoding }
+
+    func selectEncodingPreset(_ preset: GIFEncodingPreset) {
+        if preset == .custom { customEncoding = encoding }
+        encodingPreset = preset
     }
 
     var timelineBounds: ClosedRange<Double> {
@@ -234,6 +244,7 @@ final class EditorModel {
                     Task { @MainActor [weak self] in self?.progress = max(self?.progress ?? 0, value) }
                 }
                 exportedURL = url
+                exportedEncodingSummary = settings.encoding.summary
                 let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
                 exportedSize = ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
             } catch is CancellationError {

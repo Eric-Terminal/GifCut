@@ -4,6 +4,8 @@ import ImageIO
 import Testing
 @testable import GifCutCore
 
+private let originalEncoding = GIFEncoding(paletteSize: .colors256, dithering: .smooth)
+
 @Suite("真实 FFmpeg 导出", .serialized)
 struct ExportTests {
     @Test("不足一个输出帧间隔的片段仍能导出画面")
@@ -15,7 +17,7 @@ struct ExportTests {
         var range = ClipRange(duration: 4)
         range.setEnd(0.04)
         let settings = ExportSettings(input: input, range: range, crop: .full,
-                                      videoSize: CGSize(width: 320, height: 240), maximumWidth: 80, fps: 10)
+                                      videoSize: CGSize(width: 320, height: 240), maximumWidth: 80, fps: 10, encoding: originalEncoding)
         let output = folder.appendingPathComponent("short.gif")
         try await GIFExporter.export(settings, to: output, cancellation: ExportCancellation()) { _ in }
         let source = try #require(CGImageSourceCreateWithURL(output as CFURL, nil))
@@ -33,7 +35,7 @@ struct ExportTests {
         range.setEnd(3.25)
         let settings = ExportSettings(input: input, range: range,
             crop: CropRegion(rect: CGRect(x: 0, y: 0, width: 0.5, height: 0.5)),
-            videoSize: CGSize(width: 320, height: 240), maximumWidth: 80, fps: 10)
+            videoSize: CGSize(width: 320, height: 240), maximumWidth: 80, fps: 10, encoding: originalEncoding)
         let output = folder.appendingPathComponent("结果.gif")
         try await GIFExporter.export(settings, to: output, cancellation: ExportCancellation()) { _ in }
         let source = try #require(CGImageSourceCreateWithURL(output as CFURL, nil))
@@ -73,7 +75,7 @@ struct ExportTests {
         range.setEnd(1)
         let settings = ExportSettings(input: input, range: range,
             crop: CropRegion(rect: CGRect(x: 0.5, y: 0, width: 0.5, height: 0.5)),
-            videoSize: CGSize(width: 240, height: 320), maximumWidth: 120, fps: 10)
+            videoSize: CGSize(width: 240, height: 320), maximumWidth: 120, fps: 10, encoding: originalEncoding)
         let output = folder.appendingPathComponent("portrait.gif")
         try await GIFExporter.export(settings, to: output, cancellation: ExportCancellation()) { _ in }
         let source = try #require(CGImageSourceCreateWithURL(output as CFURL, nil))
@@ -92,7 +94,7 @@ struct ExportTests {
         let original = Data("原来的 GIF 内容".utf8)
         try original.write(to: output)
         var settings = ExportSettings(input: input, range: ClipRange(duration: 1), crop: .full,
-                                      videoSize: CGSize(width: 320, height: 240), maximumWidth: 80, fps: 10)
+                                      videoSize: CGSize(width: 320, height: 240), maximumWidth: 80, fps: 10, encoding: originalEncoding)
         let token = ExportCancellation()
         token.cancel()
         do {
@@ -107,7 +109,7 @@ struct ExportTests {
         #expect(try Data(contentsOf: output) == original)
         try fixture(input)
         settings = ExportSettings(input: input, range: ClipRange(duration: 1), crop: .full,
-                                  videoSize: CGSize(width: 320, height: 240), maximumWidth: 80, fps: 10)
+                                  videoSize: CGSize(width: 320, height: 240), maximumWidth: 80, fps: 10, encoding: originalEncoding)
         try await GIFExporter.export(settings, to: output, cancellation: ExportCancellation()) { _ in }
         #expect(try Data(contentsOf: output).starts(with: Data("GIF89a".utf8)))
     }
@@ -119,7 +121,7 @@ struct ExportTests {
         let input = folder.appendingPathComponent("source.mp4")
         try fixture(input)
         let settings = ExportSettings(input: input, range: ClipRange(duration: 4), crop: .full,
-                                      videoSize: CGSize(width: 320, height: 240), maximumWidth: 320, fps: 30)
+                                      videoSize: CGSize(width: 320, height: 240), maximumWidth: 320, fps: 30, encoding: originalEncoding)
         let output = folder.appendingPathComponent("cancelled.gif")
         let token = ExportCancellation()
         do {
@@ -130,6 +132,67 @@ struct ExportTests {
         } catch is CancellationError { }
         #expect(!FileManager.default.fileExists(atPath: output.path))
         #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["source.mp4"])
+    }
+
+    @Test("各预设实际限制输出颜色并保持尺寸和帧数", arguments: GIFEncodingPreset.allCases.filter { $0 != .custom })
+    func encodingPresets(_ preset: GIFEncodingPreset) async throws {
+        let encoding = try #require(preset.encoding)
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let input = folder.appendingPathComponent("gradient.mp4")
+        try gradientFixture(input)
+        let settings = ExportSettings(input: input, range: ClipRange(duration: 1), crop: .full,
+            videoSize: CGSize(width: 96, height: 64), maximumWidth: 96, fps: 10, encoding: encoding)
+        let output = folder.appendingPathComponent("\(preset.rawValue).gif")
+        try await GIFExporter.export(settings, to: output, cancellation: ExportCancellation()) { _ in }
+        let source = try #require(CGImageSourceCreateWithURL(output as CFURL, nil))
+        #expect(CGImageSourceGetCount(source) == 10)
+        let frame = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        #expect(frame.width == 96 && frame.height == 64)
+        let count = Set(try pixels(frame)).count
+        #expect(count <= encoding.paletteSize.rawValue)
+        // 渐变素材必须实际使用足够多的颜色，不能用错误的灰度或空白输出通过上限检查。
+        #expect(count > encoding.paletteSize.rawValue / 2)
+    }
+
+    @Test("自定义 32 色生效，三种抖色生成不同的画面")
+    func customEncoding() async throws {
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let input = folder.appendingPathComponent("gradient.mp4")
+        try gradientFixture(input)
+        var renderedFrames: [[UInt32]] = []
+        for dithering in GIFDithering.allCases {
+            let encoding = GIFEncoding(paletteSize: .colors32, dithering: dithering)
+            let settings = ExportSettings(input: input, range: ClipRange(duration: 1), crop: .full,
+                videoSize: CGSize(width: 96, height: 64), maximumWidth: 96, fps: 10, encoding: encoding)
+            let output = folder.appendingPathComponent("\(dithering.rawValue).gif")
+            try await GIFExporter.export(settings, to: output, cancellation: ExportCancellation()) { _ in }
+            let source = try #require(CGImageSourceCreateWithURL(output as CFURL, nil))
+            let frame = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+            let rendered = try pixels(frame)
+            #expect(Set(rendered).count <= 32)
+            renderedFrames.append(rendered)
+        }
+        #expect(renderedFrames[0] != renderedFrames[1])
+        #expect(renderedFrames[0] != renderedFrames[2])
+        #expect(renderedFrames[1] != renderedFrames[2])
+    }
+
+    private func gradientFixture(_ output: URL) throws {
+        try ffmpeg(["-f", "lavfi", "-i", "nullsrc=s=96x64:r=10:d=1,geq=r='255*X/W':g='255*Y/H':b='255*(1-X/W)'",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", output.path])
+    }
+
+    private func pixels(_ image: CGImage) throws -> [UInt32] {
+        var values = [UInt32](repeating: 0, count: image.width * image.height)
+        try values.withUnsafeMutableBytes { buffer in
+            let context = try #require(CGContext(data: buffer.baseAddress, width: image.width, height: image.height,
+                bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        }
+        return values
     }
 
     private func fixture(_ output: URL) throws {

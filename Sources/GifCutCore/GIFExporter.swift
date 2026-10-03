@@ -8,15 +8,17 @@ public struct ExportSettings: Sendable {
     public let videoSize: CGSize
     public let maximumWidth: Int
     public let fps: Int
+    public let encoding: GIFEncoding
 
     public init(input: URL, range: ClipRange, crop: CropRegion, videoSize: CGSize,
-                maximumWidth: Int, fps: Int) {
+                maximumWidth: Int, fps: Int, encoding: GIFEncoding) {
         self.input = input
         self.range = range
         self.crop = crop
         self.videoSize = videoSize
         self.maximumWidth = maximumWidth
         self.fps = fps
+        self.encoding = encoding
     }
 
     public var outputSize: CGSize {
@@ -104,14 +106,14 @@ public enum GIFExporter {
             let common = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-ss", decimal(settings.range.start),
                           "-t", decimal(settings.range.length), "-i", settings.input.path]
             // 两遍编码只保留一张调色板，避免长片段在 split/palettegen 中缓存所有画面。
-            try run(executable, arguments: common + ["-vf", settings.videoFilter + ",palettegen=stats_mode=diff",
+            try run(executable, arguments: common + ["-vf", settings.videoFilter + "," + settings.encoding.paletteFilter,
                 "-frames:v", "1", "-update", "1", "-progress", "pipe:1", palette.path],
                 scratch: scratch, cancellation: cancellation) { value in
                 progress(min(0.45, value / settings.range.length * 0.45))
             }
             progress(0.45)
             try run(executable, arguments: common + ["-i", palette.path, "-filter_complex",
-                "[0:v:0]\(settings.videoFilter)[v];[v][1:v]paletteuse=dither=sierra2_4a:diff_mode=rectangle[out]",
+                "[0:v:0]\(settings.videoFilter)[v];[v][1:v]\(settings.encoding.useFilter)[out]",
                 "-map", "[out]", "-an", "-loop", "0", "-final_delay", String(max(1, Int((100.0 / Double(settings.fps)).rounded()))),
                 "-progress", "pipe:1", output.path], scratch: scratch, cancellation: cancellation) { value in
                 progress(0.45 + min(0.54, value / settings.range.length * 0.54))

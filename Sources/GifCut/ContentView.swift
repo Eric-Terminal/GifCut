@@ -76,10 +76,9 @@ struct ContentView: View {
             .padding(22)
             .disabled(model.isLoading || model.isExporting)
             Divider()
-            GeometryReader { geometry in
-                ScrollView {
-                    exportPanel.frame(minHeight: geometry.size.height)
-                }
+            VStack(spacing: 16) {
+                ScrollView { exportPanel }
+                exportControls
             }.frame(width: 250).padding(22)
         }
     }
@@ -126,6 +125,21 @@ struct ContentView: View {
                 Picker("帧率", selection: $model.fps) {
                     ForEach([10, 12, 15, 20, 24, 30], id: \.self) { Text("\($0) fps").tag($0) }
                 }
+                Picker("编码方式", selection: Binding(get: { model.encodingPreset }, set: { model.selectEncodingPreset($0) })) {
+                    ForEach(GIFEncodingPreset.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                if model.encodingPreset == .custom {
+                    Picker("颜色上限", selection: $model.customEncoding.paletteSize) {
+                        ForEach(GIFPaletteSize.allCases, id: \.self) { Text("\($0.rawValue) 色").tag($0) }
+                    }
+                    Picker("抖色", selection: $model.customEncoding.dithering) {
+                        ForEach(GIFDithering.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                }
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(model.encoding.summary).fontWeight(.medium)
+                    Text(model.encoding.dithering.explanation)
+                }.font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 if let settings = model.settings {
                     Text("输出 \(Int(settings.outputSize.width)) × \(Int(settings.outputSize.height)) · \(model.range.length, specifier: "%.2f") 秒")
                         .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
@@ -133,7 +147,11 @@ struct ContentView: View {
                 Text("宽度和帧率越低，文件越小。GIF 无声，自动循环。")
                     .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }.disabled(model.isExporting)
-            Spacer(minLength: 0)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var exportControls: some View {
+        VStack(alignment: .leading, spacing: 12) {
             if model.isExporting {
                 VStack(spacing: 10) {
                     ProgressView(value: model.progress)
@@ -147,6 +165,7 @@ struct ContentView: View {
                 if let url = model.exportedURL {
                     VStack(alignment: .leading, spacing: 8) {
                         Label("已导出 · \(model.exportedSize)", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                        Text(model.exportedEncodingSummary).foregroundStyle(.secondary)
                         HStack {
                             Button("打开 GIF") { NSWorkspace.shared.open(url) }
                             Button("在 Finder 中显示") { NSWorkspace.shared.activateFileViewerSelecting([url]) }

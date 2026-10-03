@@ -50,7 +50,8 @@ struct SelectionTests {
     @Test("输出不放大小画面，长时间标签不丢失小时")
     func outputSizeAndTime() {
         let settings = ExportSettings(input: URL(fileURLWithPath: "/tmp/test.mp4"), range: ClipRange(duration: 10),
-                                      crop: .full, videoSize: CGSize(width: 320, height: 180), maximumWidth: 640, fps: 15)
+                                      crop: .full, videoSize: CGSize(width: 320, height: 180), maximumWidth: 640, fps: 15,
+                                      encoding: GIFEncoding(paletteSize: .colors256, dithering: .smooth))
         #expect(settings.outputSize == CGSize(width: 320, height: 180))
         #expect(timestamp(3661.125) == "1:01:01.125")
         #expect(timestamp(59.9998) == "01:00.000")
