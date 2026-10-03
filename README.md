@@ -2,7 +2,7 @@
 
 一个本机视频转 GIF 小工具：打开视频，拖选片段，在画面上框出区域，然后导出循环 GIF。
 
-使用 SwiftUI、AVFoundation 和电脑现有的 FFmpeg。视频不会上传，原视频不会被修改。
+使用 SwiftUI、AVFoundation 和本机安装的 FFmpeg。视频不会上传，原视频不会被修改。
 
 ## 使用
 
@@ -32,11 +32,14 @@
 
 ## 构建
 
-需要 macOS 15 或更高版本、Swift 6 工具链，以及 FFmpeg。当前开发电脑已有全部依赖。
+需要 macOS 15 或更高版本、带 Swift 6 工具链的 Xcode，以及 FFmpeg。
 
 ```sh
-# 换到其他电脑且尚未安装 FFmpeg 时执行
+# 安装导出所需的 FFmpeg
 brew install ffmpeg
+
+git clone https://github.com/Eric-Terminal/GifCut.git
+cd GifCut
 
 swift test
 bash scripts/build-app.sh
@@ -56,3 +59,7 @@ open dist/帧选.app
 预览和导出使用同一组归一化裁切坐标，不把播放器黑边算进画面。导出分两遍生成和使用调色板，避免单条 `split` 滤镜缓存整个片段。临时文件放在目标目录，编码成功后才替换目标文件；取消或失败会清理临时文件。
 
 参考：[Apple AVAssetImageGenerator](https://developer.apple.com/documentation/avfoundation/avassetimagegenerator)、[FFmpeg 滤镜文档](https://ffmpeg.org/ffmpeg-filters.html)。
+
+## 许可证
+
+本项目使用 [MIT 许可证](LICENSE)。FFmpeg 是单独安装的外部程序，遵循其自身许可证。
